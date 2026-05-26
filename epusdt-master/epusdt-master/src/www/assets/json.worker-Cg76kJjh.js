@@ -1,1 +1,0 @@
-function e(e){return new Worker(`/assets/json.worker-c4h5s80L.js`,{name:e?.name})}export{e as default};

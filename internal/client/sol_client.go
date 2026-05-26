@@ -1,25 +1,50 @@
+// ============================================================
+// SolClient Solana RPC 客户端
+// ============================================================
+// 通过 JSON-RPC 协议与 Solana 验证节点通信。
+//
+// Solana 的特点：
+//   - 出块速度极快（约 0.4 秒一个区块）
+//   - 使用 Slot（槽位号）而非 Block Number
+//   - 交易费用极低（约 0.000005 SOL）
+//   - 吞吐量高（理论 65,000 TPS）
+//
+// 常用 RPC 方法：
+//   - getBlockHeight：获取最新区块高度
+//   - getBlock：根据槽位号获取区块详情
+//
+// Go 语言基础知识:
+//   - struct：结构体，用于定义数据结构
+//   - *int64：指针类型，可以为 nil（表示空值）
+//   - interface{}：空接口，可以持有任意类型的值
+//   - strconv.FormatInt：将整数格式化为字符串
+//   - append：向切片追加元素
+// ============================================================
 package client
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"strconv"
-	"time"
+	"bytes"         // 字节操作
+	"encoding/json" // JSON 编解码
+	"fmt"           // 格式化字符串
+	"io"            // IO 操作
+	"net/http"      // HTTP 客户端
+	"strconv"       // 字符串转换
+	"time"          // 时间处理
 
-	"blockexplore/internal/model"
+	"blockexplore/internal/model" // 数据模型
 )
 
+// ============================================================
 // SolClient Solana RPC 客户端
-// 通过 JSON-RPC 协议与 Solana 验证节点通信
+// ============================================================
 type SolClient struct {
 	rpcURL     string       // RPC 节点地址
 	httpClient *http.Client // HTTP 客户端
 }
 
+// ============================================================
 // NewSolClient 创建 Solana RPC 客户端实例
+// ============================================================
 func NewSolClient(rpcURL string) *SolClient {
 	return &SolClient{
 		rpcURL: rpcURL,
@@ -29,7 +54,10 @@ func NewSolClient(rpcURL string) *SolClient {
 	}
 }
 
-// call 发送 Solana JSON-RPC 请求
+// ============================================================
+// call 方法：发送 Solana JSON-RPC 请求
+// ============================================================
+// Solana 节点通常不需要认证（公开 RPC）
 func (c *SolClient) call(method string, params ...interface{}) (json.RawMessage, error) {
 	reqBody := jsonRPCRequest{
 		JsonRPC: "2.0",
@@ -66,43 +94,57 @@ func (c *SolClient) call(method string, params ...interface{}) (json.RawMessage,
 	return rpcResp.Result, nil
 }
 
+// ============================================================
 // solSlot Solana Slot 的 JSON 结构
+// ============================================================
+// Slot 是 Solana 的时间单位，类似于区块
 type solSlot struct {
 	Slot int64 `json:"slot"` // 槽位号
 }
 
+// ============================================================
 // solBlock Solana 区块的 JSON 结构
+// ============================================================
 type solBlock struct {
-	BlockHeight   int64                    `json:"blockHeight"`   // 区块高度
-	BlockTime     *int64                   `json:"blockTime"`     // 出块时间（Unix 时间戳）
-	Blockhash     string                   `json:"blockhash"`     // 区块哈希
-	ParentSlot    int64                    `json:"parentSlot"`    // 父槽位号
-	PreviousBlockhash string               `json:"previousBlockhash"` // 父区块哈希
-	Transactions  []solTransaction         `json:"transactions"`  // 交易列表
+	BlockHeight       int64            `json:"blockHeight"`       // 区块高度
+	BlockTime         *int64           `json:"blockTime"`         // 出块时间（Unix 时间戳），可能为 nil
+	Blockhash         string           `json:"blockhash"`         // 区块哈希
+	ParentSlot        int64            `json:"parentSlot"`        // 父槽位号
+	PreviousBlockhash string           `json:"previousBlockhash"` // 父区块哈希
+	Transactions      []solTransaction `json:"transactions"`      // 交易列表
 }
 
+// ============================================================
 // solTransaction Solana 交易的 JSON 结构
+// ============================================================
+// Solana 交易包含指令（Instructions），每个指令调用一个程序
 type solTransaction struct {
 	Transaction struct {
 		Message struct {
-			AccountKeys []string `json:"accountKeys"` // 账户地址列表
+			AccountKeys  []string `json:"accountKeys"`  // 账户地址列表
 			Instructions []struct {
-				ProgramId string `json:"programId"` // 程序 ID
+				ProgramId string `json:"programId"` // 程序 ID（被调用的程序）
 			} `json:"instructions"` // 指令列表
 		} `json:"message"`
 		Signatures []string `json:"signatures"` // 签名列表（第一个是交易签名）
 	} `json:"transaction"`
 	Meta struct {
 		Err           interface{} `json:"err"`           // 错误信息（null 表示成功）
-		Fee           int64       `json:"fee"`           // 手续费（lamports）
+		Fee           int64       `json:"fee"`           // 手续费（lamports，1 SOL = 10^9 lamports）
 		PreBalances   []int64     `json:"preBalances"`   // 交易前余额
 		PostBalances  []int64     `json:"postBalances"`  // 交易后余额
 	} `json:"meta"`
 }
 
-// GetLatestBlockNumber 获取最新区块高度
+// ============================================================
+// GetLatestBlockNumber 方法：获取最新区块高度
+// ============================================================
+// 调用 getBlockHeight 方法，返回最新确认的区块高度
 func (c *SolClient) GetLatestBlockNumber() (int64, error) {
-	// 获取最新确认的区块高度
+	// commitment 参数指定确认级别：
+	// - processed：最新处理的（可能回滚）
+	// - confirmed：已确认的（推荐）
+	// - finalized：最终确认的（最安全但最慢）
 	result, err := c.call("getBlockHeight", map[string]string{"commitment": "confirmed"})
 	if err != nil {
 		return 0, fmt.Errorf("获取最新区块高度失败: %w", err)
@@ -116,10 +158,17 @@ func (c *SolClient) GetLatestBlockNumber() (int64, error) {
 	return height, nil
 }
 
-// GetBlockByNumber 根据区块高度获取区块详情
+// ============================================================
+// GetBlockByNumber 方法：根据区块高度获取区块详情
+// ============================================================
+// Solana 使用槽位号(slot)来获取区块
 func (c *SolClient) GetBlockByNumber(blockNumber int64) (*model.Block, []model.Transaction, error) {
-	// Solana 使用槽位号(slot)来获取区块
-	// 配置: 返回完整交易详情，交易版本为 0
+	// 配置参数：
+	// - encoding: json（返回 JSON 格式）
+	// - transactionDetails: full（返回完整交易详情）
+	// - rewards: false（不返回奖励信息）
+	// - commitment: confirmed（已确认级别）
+	// - maxSupportedTransactionVersion: 0（支持的交易版本）
 	result, err := c.call("getBlock", blockNumber, map[string]interface{}{
 		"encoding":                       "json",
 		"transactionDetails":             "full",
@@ -136,10 +185,10 @@ func (c *SolClient) GetBlockByNumber(blockNumber int64) (*model.Block, []model.T
 		return nil, nil, fmt.Errorf("解析区块数据失败: %w", err)
 	}
 
-	// 获取区块时间
+	// 获取区块时间（可能为 nil）
 	var timestamp int64
 	if solBlock.BlockTime != nil {
-		timestamp = *solBlock.BlockTime
+		timestamp = *solBlock.BlockTime // 解引用指针，获取实际值
 	}
 
 	// 转换为我们的区块模型
@@ -150,8 +199,8 @@ func (c *SolClient) GetBlockByNumber(blockNumber int64) (*model.Block, []model.T
 		ParentHash:  solBlock.PreviousBlockhash,
 		Timestamp:   timestamp,
 		TxCount:     len(solBlock.Transactions),
-		Slot:        &blockNumber,
-		Difficulty:  "0",
+		Slot:        &blockNumber, // 取指针
+		Difficulty:  "0",          // Solana 没有难度概念
 		GasUsed:     "0",
 		GasLimit:    "0",
 	}
@@ -166,6 +215,7 @@ func (c *SolClient) GetBlockByNumber(blockNumber int64) (*model.Block, []model.T
 		}
 
 		// 获取发送方和接收方地址
+		// Solana 交易的第一个账户通常是发送方（fee payer）
 		fromAddr := ""
 		toAddr := ""
 		if len(solTx.Transaction.Message.AccountKeys) > 0 {
@@ -176,6 +226,7 @@ func (c *SolClient) GetBlockByNumber(blockNumber int64) (*model.Block, []model.T
 		}
 
 		// 计算转账金额（余额差值）
+		// Solana 通过交易前后的余额差值计算转账金额
 		var value int64
 		if len(solTx.Meta.PreBalances) > 0 && len(solTx.Meta.PostBalances) > 0 {
 			value = solTx.Meta.PostBalances[0] - solTx.Meta.PreBalances[0]
@@ -187,13 +238,14 @@ func (c *SolClient) GetBlockByNumber(blockNumber int64) (*model.Block, []model.T
 			status = 0 // 有错误则失败
 		}
 
+		// 构建交易模型
 		txn := model.Transaction{
 			Chain:       "sol",
 			TxHash:      txHash,
 			BlockNumber: solBlock.BlockHeight,
 			FromAddr:    fromAddr,
 			ToAddr:      toAddr,
-			Value:       strconv.FormatInt(value, 10),
+			Value:       strconv.FormatInt(value, 10), // 整数转字符串
 			GasUsed:     strconv.FormatInt(solTx.Meta.Fee, 10),
 			Status:      status,
 			Timestamp:   timestamp,

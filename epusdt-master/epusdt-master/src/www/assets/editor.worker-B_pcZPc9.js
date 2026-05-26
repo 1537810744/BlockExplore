@@ -1,1 +1,0 @@
-function e(e){return new Worker(`/assets/editor.worker-Dpt_xPrs.js`,{name:e?.name})}export{e as default};

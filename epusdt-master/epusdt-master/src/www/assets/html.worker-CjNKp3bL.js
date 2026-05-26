@@ -1,1 +1,0 @@
-function e(e){return new Worker(`/assets/html.worker-IWNXhnIC.js`,{name:e?.name})}export{e as default};
