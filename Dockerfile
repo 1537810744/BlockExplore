@@ -46,8 +46,8 @@ RUN apk add --no-cache ca-certificates tzdata
 # 从编译阶段复制二进制文件
 COPY --from=builder /app/bin/ /app/
 
-# 复制配置文件模板
-COPY .env.example /app/.env
+# 复制配置文件（运行时通过 env_file 覆盖）
+COPY .env.docker /app/.env
 
 # 复制数据库迁移文件
 COPY migrations/ /app/migrations/

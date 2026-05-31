@@ -52,7 +52,7 @@ func NewPriceService(priceRepo *repository.PriceRepo, redisClient *cache.RedisCl
 		priceRepo:  priceRepo,
 		cache:      redisClient,
 		apiURL:     apiURL,
-		httpClient: &http.Client{Timeout: 10 * time.Second}, // 10 秒超时
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -232,10 +232,10 @@ func (s *PriceService) fetchPriceFromAPI(chain string) (*PriceResponse, error) {
 // 返回格式: {"bitcoin": {"usd": 50000}}
 func (s *PriceService) fetchPrice(coinID string) (float64, error) {
 	// 构建请求 URL
-	url := fmt.Sprintf("%s/simple/price?ids=%s&vs_currencies=usd", s.apiURL, coinID)
+	apiURL := fmt.Sprintf("%s/simple/price?ids=%s&vs_currencies=usd", s.apiURL, coinID)
 
 	// 发送 GET 请求
-	resp, err := s.httpClient.Get(url)
+	resp, err := s.httpClient.Get(apiURL)
 	if err != nil {
 		return 0, fmt.Errorf("请求价格 API 失败: %w", err)
 	}
@@ -247,23 +247,41 @@ func (s *PriceService) fetchPrice(coinID string) (float64, error) {
 		return 0, fmt.Errorf("读取价格响应失败: %w", err)
 	}
 
-	// 解析 JSON
-	// CoinGecko 返回格式: {"bitcoin": {"usd": 50000}}
-	var result map[string]map[string]float64
-	if err := json.Unmarshal(body, &result); err != nil {
-		return 0, fmt.Errorf("解析价格数据失败: %w", err)
+	// 检查 HTTP 状态码
+	if resp.StatusCode != http.StatusOK {
+		logger.Debug("价格 API 返回非 200",
+			zap.String("coin_id", coinID),
+			zap.Int("status", resp.StatusCode),
+			zap.String("body", string(body)),
+		)
+		return 0, fmt.Errorf("价格 API 返回状态码 %d", resp.StatusCode)
 	}
 
-	// 获取代币价格
+	// 解析 JSON
+	var result map[string]map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0, fmt.Errorf("解析价格数据失败: %w, body: %s", err, string(body))
+	}
+
 	coinData, ok := result[coinID]
 	if !ok {
-		return 0, fmt.Errorf("未找到代币 %s 的价格数据", coinID)
+		return 0, fmt.Errorf("未找到代币 %s 的价格数据, response: %s", coinID, string(body))
 	}
 
-	price, ok := coinData["usd"]
+	usdVal, ok := coinData["usd"]
 	if !ok {
 		return 0, fmt.Errorf("未找到 USD 价格")
 	}
 
-	return price, nil
+	// 兼容 float64 和 string 两种格式
+	switch v := usdVal.(type) {
+	case float64:
+		return v, nil
+	case string:
+		var price float64
+		fmt.Sscanf(v, "%f", &price)
+		return price, nil
+	default:
+		return 0, fmt.Errorf("未知的价格格式: %T", usdVal)
+	}
 }

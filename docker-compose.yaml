@@ -1,10 +1,10 @@
 # ============================================================
-# BlockExplore Docker Compose
-# 基础设施容器化，Go 服务本地运行
+# BlockExplore 完整 Docker Compose 配置
 # ============================================================
 
 services:
-  # PostgreSQL 数据库
+  # ==================== 基础设施 ====================
+
   postgres:
     image: postgres:latest
     container_name: blockexplore-postgres
@@ -26,7 +26,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis 缓存
   redis:
     image: redis:latest
     container_name: blockexplore-redis
@@ -42,7 +41,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Kafka（apache/kafka KRaft 模式）
   kafka:
     image: apache/kafka:latest
     container_name: blockexplore-kafka
@@ -52,7 +50,7 @@ services:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
@@ -60,6 +58,8 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_MESSAGE_MAX_BYTES: 10485760
+      KAFKA_REPLICA_FETCH_MAX_BYTES: 10485760
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     volumes:
       - kafka_data:/var/lib/kafka/data
@@ -71,6 +71,166 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
+
+  # ==================== Go 微服务 ====================
+
+  # query-api / search-api / block-processor：不需要外部网络，清除代理
+  query-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blockexplore-query-api
+    command: ["/app/query-api"]
+    env_file:
+      - .env.docker
+    environment:
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - http_proxy=
+      - https_proxy=
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - blockexplore-net
+    restart: unless-stopped
+
+  search-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blockexplore-search-api
+    command: ["/app/search-api"]
+    env_file:
+      - .env.docker
+    environment:
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - http_proxy=
+      - https_proxy=
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - blockexplore-net
+    restart: unless-stopped
+
+  block-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blockexplore-processor
+    command: ["/app/block-processor"]
+    env_file:
+      - .env.docker
+    environment:
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - http_proxy=
+      - https_proxy=
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - blockexplore-net
+    restart: unless-stopped
+
+  # price-api：需要代理访问 CoinGecko（在中国被墙）
+  # 通过 Docker Desktop 全局代理 (host.docker.internal:7890) 访问本机代理
+  price-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blockexplore-price-api
+    command: ["/app/price-api"]
+    env_file:
+      - .env.docker
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - blockexplore-net
+    restart: unless-stopped
+
+  # eth-sync-worker：需要代理访问以太坊 RPC
+  eth-sync-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blockexplore-eth-sync
+    command: ["/app/eth-sync-worker"]
+    env_file:
+      - .env.docker
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - blockexplore-net
+    restart: unless-stopped
+
+  # btc-sync-worker：使用 Mempool.space 公开 API，无需代理
+  btc-sync-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blockexplore-btc-sync
+    command: ["/app/btc-sync-worker"]
+    env_file:
+      - .env.docker
+    environment:
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - http_proxy=
+      - https_proxy=
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - blockexplore-net
+    restart: unless-stopped
+
+  # sol-sync-worker：需要代理访问 Solana RPC
+  sol-sync-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blockexplore-sol-sync
+    command: ["/app/sol-sync-worker"]
+    env_file:
+      - .env.docker
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - blockexplore-net
+    restart: unless-stopped
+
+  # ==================== 前端 ====================
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: blockexplore-web
+    ports:
+      - "3000:80"
+    depends_on:
+      - query-api
+    networks:
+      - blockexplore-net
+    restart: unless-stopped
 
 volumes:
   postgres_data:
