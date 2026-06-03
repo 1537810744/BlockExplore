@@ -23,6 +23,7 @@
 //   - fmt.Errorf：格式化创建错误，%w 包装原始错误
 //   - defer：延迟执行，确保资源被正确释放
 //   - json.RawMessage：原始 JSON 字节，延迟解析
+//
 // ============================================================
 package client
 
@@ -37,7 +38,7 @@ import (
 	"time"          // 时间处理
 
 	"blockexplore/internal/model" // 数据模型
-	"blockexplore/pkg/logger"    // 日志
+	"blockexplore/pkg/logger"     // 日志
 
 	"go.uber.org/zap" // 日志库
 )
@@ -178,30 +179,30 @@ func (c *EthClient) call(method string, params ...interface{}) (json.RawMessage,
 // ============================================================
 // 这是 RPC 返回的原始格式，十六进制值需要转换为十进制
 type ethBlock struct {
-	Number       string          `json:"number"`        // 区块高度（十六进制），例如 "0x1a2b3c"
-	Hash         string          `json:"hash"`           // 区块哈希
-	ParentHash   string          `json:"parentHash"`     // 父区块哈希
-	Timestamp    string          `json:"timestamp"`      // 出块时间（十六进制 Unix 时间戳）
+	Number       string           `json:"number"`       // 区块高度（十六进制），例如 "0x1a2b3c"
+	Hash         string           `json:"hash"`         // 区块哈希
+	ParentHash   string           `json:"parentHash"`   // 父区块哈希
+	Timestamp    string           `json:"timestamp"`    // 出块时间（十六进制 Unix 时间戳）
 	Transactions []ethTransaction `json:"transactions"` // 交易列表
-	GasUsed      string          `json:"gasUsed"`        // 已消耗 Gas（十六进制）
-	GasLimit     string          `json:"gasLimit"`       // Gas 上限（十六进制）
-	Size         string          `json:"size"`           // 区块大小（十六进制）
+	GasUsed      string           `json:"gasUsed"`      // 已消耗 Gas（十六进制）
+	GasLimit     string           `json:"gasLimit"`     // Gas 上限（十六进制）
+	Size         string           `json:"size"`         // 区块大小（十六进制）
 }
 
 // ============================================================
 // ethTransaction 以太坊交易的 JSON 结构
 // ============================================================
 type ethTransaction struct {
-	Hash        string `json:"hash"`        // 交易哈希
-	From        string `json:"from"`        // 发送方地址
-	To          string `json:"to"`          // 接收方地址（合约创建时为空）
-	Value       string `json:"value"`       // 转账金额（Wei，十六进制）
-	GasPrice    string `json:"gasPrice"`    // Gas 价格（十六进制）
-	Gas         string `json:"gas"`         // Gas 上限（十六进制）
-	Nonce       string `json:"nonce"`       // 交易序号（十六进制）
-	Input       string `json:"input"`       // 调用数据（合约调用时的参数）
-	BlockNumber string `json:"blockNumber"` // 所在区块高度（十六进制）
-	BlockHash   string `json:"blockHash"`   // 所在区块哈希
+	Hash             string `json:"hash"`             // 交易哈希
+	From             string `json:"from"`             // 发送方地址
+	To               string `json:"to"`               // 接收方地址（合约创建时为空）
+	Value            string `json:"value"`            // 转账金额（Wei，十六进制）
+	GasPrice         string `json:"gasPrice"`         // Gas 价格（十六进制）
+	Gas              string `json:"gas"`              // Gas 上限（十六进制）
+	Nonce            string `json:"nonce"`            // 交易序号（十六进制）
+	Input            string `json:"input"`            // 调用数据（合约调用时的参数）
+	BlockNumber      string `json:"blockNumber"`      // 所在区块高度（十六进制）
+	BlockHash        string `json:"blockHash"`        // 所在区块哈希
 	TransactionIndex string `json:"transactionIndex"` // 交易在区块中的索引（十六进制）
 }
 
