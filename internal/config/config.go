@@ -20,6 +20,8 @@ package config
 import (
 	"fmt"  // 格式化字符串
 	"log"  // 标准日志库
+	"os"   // 操作系统功能
+	"path/filepath" // 文件路径处理
 
 	"github.com/spf13/viper" // 配置管理库，由 spf13 开发
 )
@@ -40,6 +42,15 @@ type Config struct {
 	Price  PriceConfig  `mapstructure:",squash"` // 价格 API 配置
 	Server ServerConfig `mapstructure:",squash"` // API 服务端口配置
 	Log    LogConfig    `mapstructure:",squash"` // 日志配置
+	Proxy  ProxyConfig  `mapstructure:",squash"` // 代理配置
+}
+
+// ============================================================
+// ProxyConfig 代理配置
+// ============================================================
+type ProxyConfig struct {
+	HTTP  string // HTTP 代理地址
+	HTTPS string // HTTPS 代理地址
 }
 
 // ============================================================
@@ -151,6 +162,25 @@ type LogConfig struct {
 	Format string // 日志格式：json（JSON 格式，适合生产环境）/ console（控制台格式，适合开发）
 }
 
+// findProjectRoot 查找项目根目录（包含 go.mod 的目录）
+func findProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "."
+}
+
 // ============================================================
 // Load 函数：从环境变量和 .env 文件加载配置
 // ============================================================
@@ -162,6 +192,12 @@ func Load() *Config {
 	viper.SetConfigType("env")  // 配置文件类型为 .env 格式
 	viper.AddConfigPath(".")    // 在当前目录查找配置文件
 	viper.AddConfigPath("..")   // 也在上级目录查找（用于 cmd 子目录运行时）
+	viper.AddConfigPath("../..") // 再上级目录查找
+
+	// 查找项目根目录并添加到配置搜索路径
+	if root := findProjectRoot(); root != "." {
+		viper.AddConfigPath(root)
+	}
 
 	// ---- 允许读取环境变量 ----
 	// AutomaticEnv() 会自动读取环境变量，覆盖配置文件中的同名配置
@@ -174,11 +210,24 @@ func Load() *Config {
 		// 类型断言：检查错误是否是 ConfigFileNotFoundError 类型
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			log.Printf("警告: 读取配置文件失败: %v", err)
+		} else {
+			log.Printf("警告: 未找到 .env 配置文件，将使用环境变量和默认值")
 		}
+	} else {
+		log.Printf("已加载配置文件: %s", viper.ConfigFileUsed())
 	}
 
 	// ---- 设置所有默认值 ----
 	setDefaults()
+
+	// ---- 导出代理配置到环境变量 ----
+	// 客户端通过 os.Getenv() 读取代理，需要手动导出
+	if httpProxy := viper.GetString("HTTP_PROXY"); httpProxy != "" {
+		os.Setenv("HTTP_PROXY", httpProxy)
+	}
+	if httpsProxy := viper.GetString("HTTPS_PROXY"); httpsProxy != "" {
+		os.Setenv("HTTPS_PROXY", httpsProxy)
+	}
 
 	// ---- 解析配置到结构体 ----
 	// viper.GetString() 从配置中获取字符串值
@@ -240,6 +289,10 @@ func Load() *Config {
 	// 日志配置
 	cfg.Log.Level = viper.GetString("LOG_LEVEL")
 	cfg.Log.Format = viper.GetString("LOG_FORMAT")
+
+	// 代理配置（用于日志显示）
+	cfg.Proxy.HTTP = viper.GetString("HTTP_PROXY")
+	cfg.Proxy.HTTPS = viper.GetString("HTTPS_PROXY")
 
 	return cfg
 }
