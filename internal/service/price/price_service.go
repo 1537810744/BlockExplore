@@ -24,6 +24,8 @@ import (
 	"fmt"           // 格式化字符串
 	"io"            // IO 操作
 	"net/http"      // HTTP 客户端
+	"net/url"       // URL 解析
+	"os"            // 环境变量
 	"time"          // 时间处理
 
 	"blockexplore/internal/model"       // 数据模型
@@ -48,12 +50,50 @@ type PriceService struct {
 // NewPriceService 创建价格服务实例
 // ============================================================
 func NewPriceService(priceRepo *repository.PriceRepo, redisClient *cache.RedisClient, apiURL string) *PriceService {
+	logPriceProxyInfo(apiURL)
 	return &PriceService{
 		priceRepo:  priceRepo,
 		cache:      redisClient,
 		apiURL:     apiURL,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// logPriceProxyInfo 打印价格服务代理配置
+func logPriceProxyInfo(apiURL string) {
+	httpProxy := os.Getenv("HTTP_PROXY")
+	httpsProxy := os.Getenv("HTTPS_PROXY")
+	if httpProxy == "" {
+		httpProxy = os.Getenv("http_proxy")
+	}
+	if httpsProxy == "" {
+		httpsProxy = os.Getenv("https_proxy")
+	}
+
+	proxyStatus := "未使用代理"
+	proxyAddr := "无"
+
+	if httpsProxy != "" {
+		proxyStatus = "使用代理"
+		if u, err := url.Parse(httpsProxy); err == nil {
+			proxyAddr = u.Host
+		} else {
+			proxyAddr = httpsProxy
+		}
+	} else if httpProxy != "" {
+		proxyStatus = "使用代理"
+		if u, err := url.Parse(httpProxy); err == nil {
+			proxyAddr = u.Host
+		} else {
+			proxyAddr = httpProxy
+		}
+	}
+
+	logger.Info("价格服务初始化",
+		zap.String("代理状态", proxyStatus),
+		zap.String("代理地址", proxyAddr),
+		zap.String("API地址", apiURL),
+	)
 }
 
 // ============================================================
@@ -158,10 +198,12 @@ func (s *PriceService) GetPriceHistory(chain string, startTime, endTime int64, l
 // ============================================================
 // 定时任务会调用此方法
 // 遍历所有链，获取价格并保存到数据库
+// 每次请求之间加延迟，避免触发 CoinGecko 限流（429）
 func (s *PriceService) SyncPrices() error {
 	// range 遍历 map，返回键和值
 	for chain, coinID := range chainCoinIDs {
-		price, err := s.fetchPrice(coinID)
+		// 带重试的价格获取
+		price, err := s.fetchPriceWithRetry(coinID, 3)
 		if err != nil {
 			logger.Error("获取价格失败",
 				zap.String("chain", chain),
@@ -201,9 +243,39 @@ func (s *PriceService) SyncPrices() error {
 			zap.String("chain", chain),
 			zap.Float64("price", price),
 		)
+
+		// 每个链之间延迟 2 秒，避免触发 CoinGecko 限流
+		time.Sleep(2 * time.Second)
 	}
 
 	return nil
+}
+
+// ============================================================
+// fetchPriceWithRetry 方法：带重试的价格获取
+// ============================================================
+func (s *PriceService) fetchPriceWithRetry(coinID string, maxRetries int) (float64, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// 指数退避：2s, 4s, 8s
+			backoff := time.Duration(2<<uint(attempt-1)) * time.Second
+			logger.Warn("价格获取重试",
+				zap.String("coin_id", coinID),
+				zap.Int("attempt", attempt+1),
+				zap.Duration("backoff", backoff),
+			)
+			time.Sleep(backoff)
+		}
+
+		price, err := s.fetchPrice(coinID)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return price, nil
+	}
+	return 0, fmt.Errorf("价格获取失败（重试 %d 次）: %w", maxRetries, lastErr)
 }
 
 // ============================================================

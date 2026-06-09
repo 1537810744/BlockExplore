@@ -192,3 +192,63 @@ r := router.Setup(blockHandler, txHandler, ...) // 最终装配成 HTTP 服务
 - 定义 URL 路径到 Handler 方法的映射
 - 注册全局中间件
 - 创建路由组（/api/v1/blocks、/api/v1/transactions 等）
+
+---
+
+## 前端架构（Next.js）
+
+### 技术栈
+
+| 技术 | 用途 |
+|---|---|
+| Next.js 14 (App Router) | React 框架，支持静态导出 |
+| Tailwind CSS | 原子化 CSS 样式 |
+| Recharts | 图表组件（价格走势） |
+| Lucide React | 图标库 |
+| TypeScript | 类型安全 |
+
+### 目录结构
+
+```
+web/src/
+  app/                          ← Next.js App Router 页面
+    layout.tsx                  ← 根布局（Header + Footer）
+    page.tsx                    ← 首页（价格卡片 + 最新区块）
+    globals.css                 ← 全局样式（Tailwind + 自定义）
+    blocks/[chain]/page.tsx     ← 区块列表页
+    blocks/[chain]/[number]/page.tsx  ← 区块详情页
+    tx/[chain]/[hash]/page.tsx  ← 交易详情页
+    address/[chain]/[address]/page.tsx ← 地址交易页
+  components/                   ← 可复用组件
+    Header.tsx                  ← 顶部导航栏 + 链切换
+    SearchBar.tsx               ← 搜索框（地址/交易哈希/区块号）
+    PriceCard.tsx               ← 价格卡片
+    PriceChart.tsx              ← 价格走势图
+    BlockTable.tsx              ← 区块列表组件
+    TxTable.tsx                 ← 交易列表组件
+  lib/
+    api.ts                      ← API 客户端（typed fetch）
+```
+
+### 数据流
+
+```
+浏览器 ──→ Next.js Server（端口 3000）
+  │
+  ├──→ 页面渲染（SSR / CSR）
+  │
+  └──→ GET /api/v1/blocks?chain=eth
+        │
+        ▼
+      next.config.js rewrites → http://query-api:8080
+        │
+        ▼
+      Go 后端（Handler → Service → Repository）
+        │
+        ▼
+      JSON 响应 → Next.js → 浏览器渲染
+```
+
+### Standalone 模式
+
+Next.js 配置 `output: 'standalone'` 生成独立运行的 Node.js 服务器，无需 nginx。

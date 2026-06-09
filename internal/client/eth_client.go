@@ -33,6 +33,8 @@ import (
 	"fmt"           // 格式化字符串
 	"io"            // IO 操作
 	"net/http"      // HTTP 客户端
+	"net/url"       // URL 解析
+	"os"            // 环境变量
 	"strconv"       // 字符串转换
 	"strings"       // 字符串操作
 	"time"          // 时间处理
@@ -59,6 +61,7 @@ type EthClient struct {
 // 参数 rpcURL：以太坊节点的 RPC 地址
 // 返回值：*EthClient 指针，指向新创建的客户端实例
 func NewEthClient(rpcURL string) *EthClient {
+	logProxyInfo("ETH", rpcURL)
 	return &EthClient{
 		rpcURL: rpcURL,
 		httpClient: &http.Client{
@@ -279,7 +282,7 @@ func (c *EthClient) GetBlockByNumber(blockNumber int64) (*model.Block, []model.T
 			BlockNumber: blockNumber,
 			FromAddr:    strings.ToLower(tx.From), // 统一转为小写
 			ToAddr:      strings.ToLower(tx.To),
-			Value:       hexToDecimalStr(tx.Value),
+			Value:       weiToEthStr(hexToDecimalStr(tx.Value)),
 			GasPrice:    hexToDecimalStr(tx.GasPrice),
 			GasUsed:     "0", // GasUsed 需要通过交易回执获取
 			GasLimit:    hexToDecimalStr(tx.Gas),
@@ -360,4 +363,69 @@ func hexToIntDefault(hex string, defaultVal int) int {
 		return defaultVal
 	}
 	return int(val)
+}
+
+// ============================================================
+// weiToEthStr 将 Wei 字符串转换为 ETH 格式（带 18 位小数）
+// ============================================================
+// 例如: "1500000000000000000" → "1.500000000000000000"
+//       "130036"             → "0.000000000130036000"
+// 数据库 numeric(78,18) 要求带小数点的格式
+func weiToEthStr(wei string) string {
+	if wei == "" || wei == "0" {
+		return "0.000000000000000000"
+	}
+
+	// 补齐到至少 19 位（1 位整数 + 18 位小数）
+	for len(wei) < 19 {
+		wei = "0" + wei
+	}
+
+	// 在倒数第 18 位前插入小数点
+	intPart := wei[:len(wei)-18]
+	decPart := wei[len(wei)-18:]
+	return intPart + "." + decPart
+}
+
+// ============================================================
+// logProxyInfo 打印代理配置信息
+// ============================================================
+func logProxyInfo(chain, apiURL string) {
+	httpProxy := os.Getenv("HTTP_PROXY")
+	httpsProxy := os.Getenv("HTTPS_PROXY")
+
+	// 也检查小写
+	if httpProxy == "" {
+		httpProxy = os.Getenv("http_proxy")
+	}
+	if httpsProxy == "" {
+		httpsProxy = os.Getenv("https_proxy")
+	}
+
+	proxyStatus := "未使用代理"
+	proxyAddr := "无"
+
+	if httpsProxy != "" {
+		proxyStatus = "使用代理"
+		// 解析代理地址获取端口
+		if u, err := url.Parse(httpsProxy); err == nil {
+			proxyAddr = u.Host
+		} else {
+			proxyAddr = httpsProxy
+		}
+	} else if httpProxy != "" {
+		proxyStatus = "使用代理"
+		if u, err := url.Parse(httpProxy); err == nil {
+			proxyAddr = u.Host
+		} else {
+			proxyAddr = httpProxy
+		}
+	}
+
+	logger.Info("客户端初始化",
+		zap.String("链", chain),
+		zap.String("代理状态", proxyStatus),
+		zap.String("代理地址", proxyAddr),
+		zap.String("API地址", apiURL),
+	)
 }

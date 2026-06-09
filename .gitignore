@@ -6,6 +6,11 @@
 *.dylib
 /bin/
 
+# Node.js
+node_modules/
+web/node_modules/
+web/.next/
+
 # 测试产物
 *.test
 *.out

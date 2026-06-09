@@ -13,6 +13,7 @@ package sync
 
 import (
 	"context"   // 上下文
+	"fmt"       // 格式化字符串
 	"time"      // 时间处理
 
 	"blockexplore/internal/client"  // 区块链 RPC 客户端
@@ -73,41 +74,65 @@ func (w *SolSyncWorker) Run(ctx context.Context) error {
 }
 
 // ============================================================
-// sync 方法：执行一次 Solana 区块同步
+// sync 方法：执行一次 Solana 区块同步（带重试）
 // ============================================================
 func (w *SolSyncWorker) sync(ctx context.Context) error {
-	// 获取最新区块高度
-	latestBlock, err := w.client.GetLatestBlockNumber()
-	if err != nil {
-		return err
+	const maxRetries = 3
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// 指数退避：1s, 2s, 4s
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+			logger.Warn("SOL 同步重试",
+				zap.Int("attempt", attempt+1),
+				zap.Duration("backoff", backoff),
+			)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+
+		// 获取最新区块高度
+		latestBlock, err := w.client.GetLatestBlockNumber()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		logger.Debug("SOL 最新区块高度", zap.Int64("block_number", latestBlock))
+
+		// 拉取最新区块详情
+		block, transactions, err := w.client.GetBlockByNumber(latestBlock)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		// 发送到 Kafka
+		msg := mq.BlockMessage{
+			Chain:       "sol",
+			BlockNumber: latestBlock,
+			Data: map[string]interface{}{
+				"block":        block,
+				"transactions": transactions,
+			},
+		}
+
+		if err := w.producer.Send(ctx, msg); err != nil {
+			lastErr = err
+			continue
+		}
+
+		logger.Info("SOL 区块已同步",
+			zap.Int64("block_number", latestBlock),
+			zap.Int("tx_count", len(transactions)),
+		)
+
+		return nil
 	}
 
-	logger.Debug("SOL 最新区块高度", zap.Int64("block_number", latestBlock))
-
-	// 拉取最新区块详情
-	block, transactions, err := w.client.GetBlockByNumber(latestBlock)
-	if err != nil {
-		return err
-	}
-
-	// 发送到 Kafka
-	msg := mq.BlockMessage{
-		Chain:       "sol",
-		BlockNumber: latestBlock,
-		Data: map[string]interface{}{
-			"block":        block,
-			"transactions": transactions,
-		},
-	}
-
-	if err := w.producer.Send(ctx, msg); err != nil {
-		return err
-	}
-
-	logger.Info("SOL 区块已同步",
-		zap.Int64("block_number", latestBlock),
-		zap.Int("tx_count", len(transactions)),
-	)
-
-	return nil
+	return fmt.Errorf("SOL 同步失败（重试 %d 次）: %w", maxRetries, lastErr)
 }

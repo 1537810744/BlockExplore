@@ -1,112 +1,101 @@
-// ============================================================
-// PriceChart 价格曲线组件（支持缩放）
-// ============================================================
-import { useState, useEffect } from 'react'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Brush } from 'recharts'
-import { useChain } from '../context/ChainContext'
-import { getPriceHistory } from '../api/client'
-import type { PriceHistoryItem } from '../types'
+'use client'
 
-export default function PriceChart() {
-  const { chain } = useChain()
+import { useEffect, useState } from 'react'
+import { getPriceHistory, ChainType, PriceHistoryItem } from '@/lib/api'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { Loader2 } from 'lucide-react'
+
+interface Props {
+  chain: ChainType
+}
+
+export default function PriceChart({ chain }: Props) {
   const [data, setData] = useState<PriceHistoryItem[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true)
+    let cancelled = false
+    const fetchHistory = async () => {
       try {
-        const resp = await getPriceHistory(chain, 200)
-        setData(resp.prices || [])
+        const res = await getPriceHistory(chain, 200)
+        if (!cancelled) {
+          const valid = (res.prices || [])
+            .filter((p) => p.timestamp > 0 && p.price_usd)
+            .sort((a, b) => a.timestamp - b.timestamp)
+          setData(valid)
+        }
       } catch {
-        console.error('获取价格历史失败')
+        // ignore
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
-    fetchData()
-    // 每 30 秒刷新一次
-    const timer = setInterval(fetchData, 30000)
-    return () => clearInterval(timer)
+    fetchHistory()
+    return () => { cancelled = true }
   }, [chain])
 
   if (loading) {
     return (
-      <div className="bg-slate-800 rounded-lg p-6 h-64 flex items-center justify-center">
-        <span className="text-slate-400">加载价格数据...</span>
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 animate-spin text-dark-500" />
       </div>
     )
   }
 
   if (data.length === 0) {
     return (
-      <div className="bg-slate-800 rounded-lg p-6 h-64 flex items-center justify-center">
-        <span className="text-slate-400">暂无价格数据（等待价格同步...）</span>
+      <div className="flex items-center justify-center h-64 text-dark-500">
+        No price data available
       </div>
     )
   }
 
-  const chartData = data
-    .slice()
-    .reverse() // 从旧到新
-    .map((item) => ({
-      time: new Date(item.timestamp * 1000).toLocaleString('zh-CN', {
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-      price: parseFloat(item.price_usd),
-    }))
-
-  const prices = chartData.map((d) => d.price)
-  const minPrice = Math.min(...prices)
-  const maxPrice = Math.max(...prices)
-  const padding = (maxPrice - minPrice) * 0.1 || 1
+  const chartData = data.map((item) => ({
+    time: new Date(item.timestamp * 1000).toLocaleDateString(),
+    price: parseFloat(item.price_usd) || 0,
+  })).filter((d) => d.price > 0 && isFinite(d.price))
 
   return (
-    <div className="bg-slate-800 rounded-lg p-6">
-      <h2 className="text-lg font-semibold text-white mb-4">
-        {chain.toUpperCase()} 价格走势
-        <span className="text-xs text-slate-400 ml-2">（拖动下方滑块缩放）</span>
-      </h2>
-      <ResponsiveContainer width="100%" height={250}>
-        <LineChart data={chartData}>
-          <XAxis dataKey="time" stroke="#64748b" fontSize={12} tickLine={false} />
-          <YAxis
-            stroke="#64748b"
-            fontSize={12}
+    <div className="h-64">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={chartData}>
+          <defs>
+            <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <XAxis
+            dataKey="time"
+            tick={{ fill: '#64748b', fontSize: 11 }}
             tickLine={false}
-            domain={[minPrice - padding, maxPrice + padding]}
-            tickFormatter={(v: number) => `$${v.toFixed(2)}`}
+            axisLine={{ stroke: '#334155' }}
+          />
+          <YAxis
+            tick={{ fill: '#64748b', fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(v) => `$${v.toLocaleString()}`}
+            domain={['auto', 'auto']}
           />
           <Tooltip
             contentStyle={{
               backgroundColor: '#1e293b',
               border: '1px solid #334155',
               borderRadius: '8px',
-              color: '#e2e8f0',
+              color: '#f1f5f9',
             }}
-            formatter={(value: number) => [`$${value.toFixed(2)}`, '价格']}
-            labelStyle={{ color: '#94a3b8' }}
+            formatter={(value: number) => [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 'Price']}
           />
-          <Line
+          <Area
             type="monotone"
             dataKey="price"
             stroke="#3b82f6"
             strokeWidth={2}
-            dot={false}
-            activeDot={{ r: 4, fill: '#3b82f6' }}
+            fillOpacity={1}
+            fill="url(#colorPrice)"
           />
-          {/* 底部缩放滑块：拖动可选择显示范围 */}
-          <Brush
-            dataKey="time"
-            height={30}
-            stroke="#475569"
-            fill="#1e293b"
-            travellerWidth={10}
-          />
-        </LineChart>
+        </AreaChart>
       </ResponsiveContainer>
     </div>
   )

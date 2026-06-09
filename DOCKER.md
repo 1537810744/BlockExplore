@@ -13,8 +13,8 @@ docker images | grep blockexplore
 ```
 项目根目录/
 ├── Dockerfile                  ← Go 微服务的打包说明书（所有后端共用）
-├── web/Dockerfile              ← 前端的打包说明书
-└── docker-compose.yaml         ← 总体编排文件（7 个微服务如何拼在一起）
+├── web/Dockerfile              ← 前端的打包说明书（Next.js Standalone）
+└── docker-compose.yaml         ← 总体编排文件（8 个微服务如何拼在一起）
 ```
 
 ### 一个 Dockerfile 打包出 7 个程序
@@ -54,12 +54,20 @@ docker compose down           # 停止所有服务
 
 ### 多阶段构建（Dockerfile 结构）
 
+**Go 后端 Dockerfile：**
 ```
 阶段 1: golang:1.21-alpine  →  编译 Go 源码成二进制文件
 阶段 2: alpine:3.19         →  只复制二进制文件，最终镜像体积小
 ```
 
-阶段 1 的 golang 编译工具链不会进入最终镜像，最终镜像只包含 Alpine Linux + 二进制文件 + ca-certificates。
+**前端 Dockerfile（web/Dockerfile）：**
+```
+阶段 1: node:20-alpine (deps)    →  安装 npm 依赖
+阶段 2: node:20-alpine (builder) →  构建 Next.js
+阶段 3: node:20-alpine (runner)  →  运行 standalone server
+```
+
+阶段 1 和 2 的构建工具不会进入最终镜像，最终镜像只包含 Node.js 运行时 + standalone 输出。
 
 ---
 
@@ -174,28 +182,37 @@ search-api ──postgres:5432──→ postgres          (.env.docker:11)
 price-api ──postgres:5432──→ postgres           (.env.docker:11)
 price-api ──redis:6379────→ redis               (.env.docker:21)
 
-web（nginx）──query-api:8080──→ query-api        (nginx.conf:35 proxy_pass http://query-api:8080)
-web（nginx）──search-api:8081──→ search-api      (nginx.conf:21 proxy_pass http://search-api:8081)
-web（nginx）──price-api:8082──→ price-api        (nginx.conf:27 proxy_pass http://price-api:8082)
+web（Next.js）──query-api:8080──→ query-api        (next.config.js rewrites)
+web（Next.js）──search-api:8081──→ search-api      (next.config.js rewrites)
+web（Next.js）──price-api:8082──→ price-api        (next.config.js rewrites)
 ```
 
 ### 前端不直接访问后端
 
 ```
-浏览器 ──→ nginx（web 容器，端口 3000）──→ query-api:8080
-                                         search-api:8081
-                                         price-api:8082
+浏览器 ──→ Next.js（web 容器，端口 3000）──→ query-api:8080
+                                             search-api:8081
+                                             price-api:8082
 ```
 
-### 反向代理中的服务名
+Next.js 通过 `rewrites` 配置代理 API 请求到后端服务。
 
-```
-nginx.conf:21  →  proxy_pass http://search-api:8081;
-nginx.conf:27  →  proxy_pass http://price-api:8082;
-nginx.conf:35  →  proxy_pass http://query-api:8080;
+### API 代理配置
+
+Next.js 通过 `next.config.js` 中的 `rewrites` 配置 API 代理：
+
+```javascript
+async rewrites() {
+  return [
+    {
+      source: '/api/v1/:path*',
+      destination: 'http://query-api:8080/api/v1/:path*',
+    },
+  ]
+}
 ```
 
-`search-api`、`price-api`、`query-api` 都是 docker-compose.yaml 中定义的服务名。
+`query-api` 是 docker-compose.yaml 中定义的服务名，Docker 内部 DNS 自动解析。
 
 ---
 
@@ -272,7 +289,7 @@ docker-compose.yaml
 | Redis 地址 | `localhost:6379` | `redis:6379` | `.env` → `.env.docker` |
 | Kafka 地址 | `localhost:9092` | `kafka:9092` | `.env` → `.env.docker` |
 | Go 程序在哪跑 | Windows 直接跑 | 容器内跑 | 多了 `Dockerfile` |
-| 前端在哪跑 | `npm run dev` | nginx 容器 | 多了 `web/Dockerfile` |
+| 前端在哪跑 | `npm run dev` | Next.js 静态导出 + nginx 容器 | 多了 `web/Dockerfile` |
 | 服务编排 | 手动一个个启动 | `docker compose up -d` 一键全起 | 多了 `docker-compose.yaml` |
 | 代码改动 | — | **0 行** | 只改了 env 文件 |
 

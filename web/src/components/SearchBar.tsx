@@ -1,53 +1,45 @@
-// ============================================================
-// SearchBar 搜索栏组件
-// ============================================================
-// 提供统一搜索输入框：
-//   - 输入区块号 → 跳转区块详情
-//   - 输入交易哈希 → 跳转交易详情
-//   - 输入地址 → 跳转地址交易历史
-//
-// React 知识：
-//   - 受控组件：input 的值由 React state 控制
-//   - 表单事件：onChange（输入变化）、onSubmit（提交）
-// ============================================================
-import { useState, type FormEvent } from 'react'
+'use client'
 
-interface SearchBarProps {
-  onSearch: (keyword: string) => void  // 搜索回调
-}
+import { useState, FormEvent } from 'react'
+import { useRouter } from 'next/navigation'
+import { Search } from 'lucide-react'
 
-export default function SearchBar({ onSearch }: SearchBarProps) {
-  // 管理输入框的值
-  const [keyword, setKeyword] = useState('')
+export default function SearchBar() {
+  const [query, setQuery] = useState('')
+  const router = useRouter()
 
-  // 表单提交处理
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault()  // 阻止表单默认的页面刷新行为
-    if (keyword.trim()) {
-      onSearch(keyword.trim())
-      setKeyword('')  // 清空输入框
+  const handleSearch = (e: FormEvent) => {
+    e.preventDefault()
+    const q = query.trim()
+    if (!q) return
+
+    if (/^0x[a-fA-F0-9]{64}$/.test(q)) {
+      router.push(`/tx/eth/${q}`)
+    } else if (/^(0x[a-fA-F0-9]{40}|[a-fA-F0-9]{40})$/.test(q)) {
+      router.push(`/address/eth/${q}`)
+    } else if (/^\d+$/.test(q)) {
+      router.push(`/blocks/eth/${q}`)
+    } else if (q.length === 64 || /^[a-fA-F0-9]{64}$/.test(q)) {
+      router.push(`/tx/btc/${q}`)
+    } else if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(q) || /^bc1[a-z0-9]{39,59}$/.test(q)) {
+      router.push(`/address/btc/${q}`)
+    } else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(q)) {
+      router.push(`/address/sol/${q}`)
+    } else {
+      router.push(`/blocks/eth?q=${encodeURIComponent(q)}`)
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex-1 max-w-xl">
-      <div className="relative">
-        {/* 搜索图标 */}
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-          🔍
-        </span>
-
-        {/* 搜索输入框 */}
-        <input
-          type="text"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          placeholder="搜索区块号、交易哈希或地址..."
-          className="w-full pl-10 pr-4 py-2 bg-slate-700 border border-slate-600
-                     rounded-lg text-white placeholder-slate-400
-                     focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-        />
-      </div>
+    <form onSubmit={handleSearch} className="relative">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-500" />
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search by address / tx hash / block number"
+        className="w-full bg-dark-800 border border-dark-700 rounded-lg pl-10 pr-4 py-2 text-sm text-dark-100 placeholder:text-dark-500 focus:outline-none focus:border-primary-600 focus:ring-1 focus:ring-primary-600 transition-colors"
+      />
     </form>
   )
 }

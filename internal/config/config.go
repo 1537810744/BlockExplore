@@ -283,15 +283,15 @@ func setDefaults() {
 	// ---- 各链同步间隔默认值（秒）----
 	// ETH: 约 12 秒一个区块
 	// BTC: 约 10 分钟一个区块
-	// SOL: 约 0.4 秒一个区块
+	// SOL: 约 0.4 秒一个区块，但公开 RPC 限流，5 秒比较安全
 	viper.SetDefault("ETH_SYNC_INTERVAL", 12)
 	viper.SetDefault("BTC_SYNC_INTERVAL", 600)
-	viper.SetDefault("SOL_SYNC_INTERVAL", 1)
+	viper.SetDefault("SOL_SYNC_INTERVAL", 5)
 
 	// ---- 价格 API 默认值 ----
-	// CoinGecko 是免费的加密货币价格 API
+	// CoinGecko 免费 API 限流严格，120 秒比较安全
 	viper.SetDefault("PRICE_API_URL", "https://api.coingecko.com/api/v3")
-	viper.SetDefault("PRICE_SYNC_INTERVAL", 30)
+	viper.SetDefault("PRICE_SYNC_INTERVAL", 120)
 
 	// ---- 服务端口默认值 ----
 	viper.SetDefault("QUERY_API_PORT", 8080)

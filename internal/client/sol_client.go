@@ -28,10 +28,15 @@ import (
 	"fmt"           // 格式化字符串
 	"io"            // IO 操作
 	"net/http"      // HTTP 客户端
+	"net/url"       // URL 解析
+	"os"            // 环境变量
 	"strconv"       // 字符串转换
 	"time"          // 时间处理
 
 	"blockexplore/internal/model" // 数据模型
+	"blockexplore/pkg/logger"     // 日志
+
+	"go.uber.org/zap" // 日志库
 )
 
 // ============================================================
@@ -46,12 +51,51 @@ type SolClient struct {
 // NewSolClient 创建 Solana RPC 客户端实例
 // ============================================================
 func NewSolClient(rpcURL string) *SolClient {
+	logSolProxyInfo(rpcURL)
 	return &SolClient{
 		rpcURL: rpcURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 	}
+}
+
+// logSolProxyInfo 打印 SOL 客户端代理配置
+func logSolProxyInfo(apiURL string) {
+	httpProxy := os.Getenv("HTTP_PROXY")
+	httpsProxy := os.Getenv("HTTPS_PROXY")
+	if httpProxy == "" {
+		httpProxy = os.Getenv("http_proxy")
+	}
+	if httpsProxy == "" {
+		httpsProxy = os.Getenv("https_proxy")
+	}
+
+	proxyStatus := "未使用代理"
+	proxyAddr := "无"
+
+	if httpsProxy != "" {
+		proxyStatus = "使用代理"
+		if u, err := url.Parse(httpsProxy); err == nil {
+			proxyAddr = u.Host
+		} else {
+			proxyAddr = httpsProxy
+		}
+	} else if httpProxy != "" {
+		proxyStatus = "使用代理"
+		if u, err := url.Parse(httpProxy); err == nil {
+			proxyAddr = u.Host
+		} else {
+			proxyAddr = httpProxy
+		}
+	}
+
+	logger.Info("客户端初始化",
+		zap.String("链", "SOL"),
+		zap.String("代理状态", proxyStatus),
+		zap.String("代理地址", proxyAddr),
+		zap.String("API地址", apiURL),
+	)
 }
 
 // ============================================================
@@ -218,18 +262,34 @@ func (c *SolClient) GetBlockByNumber(blockNumber int64) (*model.Block, []model.T
 		// Solana 交易的第一个账户通常是发送方（fee payer）
 		fromAddr := ""
 		toAddr := ""
+		preLen := len(solTx.Meta.PreBalances)
+		postLen := len(solTx.Meta.PostBalances)
 		if len(solTx.Transaction.Message.AccountKeys) > 0 {
 			fromAddr = solTx.Transaction.Message.AccountKeys[0]
 		}
-		if len(solTx.Transaction.Message.AccountKeys) > 1 {
-			toAddr = solTx.Transaction.Message.AccountKeys[1]
-		}
-
-		// 计算转账金额（余额差值）
-		// Solana 通过交易前后的余额差值计算转账金额
+		// 找到余额增加最多的账户作为接收方
 		var value int64
-		if len(solTx.Meta.PreBalances) > 0 && len(solTx.Meta.PostBalances) > 0 {
-			value = solTx.Meta.PostBalances[0] - solTx.Meta.PreBalances[0]
+		if preLen > 0 && postLen > 0 && preLen == postLen {
+			maxDelta := int64(0)
+			for i := 0; i < preLen && i < len(solTx.Transaction.Message.AccountKeys); i++ {
+				delta := solTx.Meta.PostBalances[i] - solTx.Meta.PreBalances[i]
+				if delta > maxDelta {
+					maxDelta = delta
+					toAddr = solTx.Transaction.Message.AccountKeys[i]
+				}
+			}
+			if maxDelta > 0 {
+				value = maxDelta
+			} else {
+				// 如果没有正向变化，取绝对值
+				value = solTx.Meta.PreBalances[0] - solTx.Meta.PostBalances[0]
+				if value < 0 {
+					value = -value
+				}
+			}
+		}
+		if toAddr == "" && len(solTx.Transaction.Message.AccountKeys) > 1 {
+			toAddr = solTx.Transaction.Message.AccountKeys[1]
 		}
 
 		// 判断交易状态
@@ -245,7 +305,7 @@ func (c *SolClient) GetBlockByNumber(blockNumber int64) (*model.Block, []model.T
 			BlockNumber: solBlock.BlockHeight,
 			FromAddr:    fromAddr,
 			ToAddr:      toAddr,
-			Value:       strconv.FormatInt(value, 10), // 整数转字符串
+			Value:       fmt.Sprintf("%.9f", float64(value)/1e9), // lamports 转 SOL
 			GasUsed:     strconv.FormatInt(solTx.Meta.Fee, 10),
 			Status:      status,
 			Timestamp:   timestamp,
