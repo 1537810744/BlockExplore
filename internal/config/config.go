@@ -164,6 +164,7 @@ type LogConfig struct {
 
 // findProjectRoot 查找项目根目录（包含 go.mod 的目录）
 func findProjectRoot() string {
+	// 先从当前工作目录查找
 	dir, err := os.Getwd()
 	if err != nil {
 		return "."
@@ -178,6 +179,22 @@ func findProjectRoot() string {
 		}
 		dir = parent
 	}
+
+	// 再从可执行文件所在目录查找
+	if exe, err := os.Executable(); err == nil {
+		dir = filepath.Dir(exe)
+		for {
+			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+				return dir
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+
 	return "."
 }
 
@@ -211,7 +228,10 @@ func Load() *Config {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			log.Printf("警告: 读取配置文件失败: %v", err)
 		} else {
-			log.Printf("警告: 未找到 .env 配置文件，将使用环境变量和默认值")
+			// 打印搜索路径帮助调试
+			cwd, _ := os.Getwd()
+			log.Printf("警告: 未找到 .env 配置文件，当前工作目录: %s", cwd)
+			log.Printf("提示: 请在项目根目录运行程序，或设置环境变量")
 		}
 	} else {
 		log.Printf("已加载配置文件: %s", viper.ConfigFileUsed())
@@ -228,6 +248,13 @@ func Load() *Config {
 	if httpsProxy := viper.GetString("HTTPS_PROXY"); httpsProxy != "" {
 		os.Setenv("HTTPS_PROXY", httpsProxy)
 	}
+
+	// 调试：打印关键配置值
+	log.Printf("[配置] DB_HOST=%s, REDIS_HOST=%s, KAFKA_BROKERS=%s",
+		viper.GetString("DB_HOST"),
+		viper.GetString("REDIS_HOST"),
+		viper.GetString("KAFKA_BROKERS"),
+	)
 
 	// ---- 解析配置到结构体 ----
 	// viper.GetString() 从配置中获取字符串值
