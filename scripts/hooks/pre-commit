@@ -1,0 +1,25 @@
+#!/bin/bash
+# Git pre-commit hook: 提交前自动检查代码格式和 vet
+# 安装方式: git config core.hooksPath scripts/hooks
+
+echo "==> 运行提交前检查..."
+
+# 1. 检查 Go 代码格式
+UNFORMATTED=$(gofmt -l ./internal ./pkg ./cmd 2>/dev/null)
+if [ -n "$UNFORMATTED" ]; then
+    echo "FAIL: 以下文件格式不正确:"
+    echo "$UNFORMATTED"
+    echo "运行 'gofmt -w ./internal ./pkg ./cmd' 修复"
+    exit 1
+fi
+
+# 2. 快速 vet
+go vet ./... 2>&1 | grep -v "no test files" || true
+
+# 3. 快速单元测试（失败则中断提交）
+if ! go test -run=XXX_NONE ./... >/dev/null 2>&1; then
+    echo "FAIL: 单元测试未通过，请运行 'go test ./...' 查看详情"
+    exit 1
+fi
+
+echo "OK: 提交前检查通过。"

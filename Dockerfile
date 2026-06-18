@@ -13,6 +13,13 @@ WORKDIR /app
 # 安装 Git（go mod 需要）
 RUN apk add --no-cache git
 
+# 国内构建加速：使用 goproxy.cn，并清除可能从宿主继承的代理设置
+ENV GOPROXY=https://goproxy.cn,direct
+ENV HTTP_PROXY=
+ENV HTTPS_PROXY=
+ENV http_proxy=
+ENV https_proxy=
+
 # 先复制依赖文件，利用 Docker 缓存层
 # 只有 go.mod/go.sum 变化时才重新下载依赖
 COPY go.mod go.sum ./

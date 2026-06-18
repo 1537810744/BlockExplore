@@ -6,6 +6,9 @@
 #   docker compose -f docker-compose.dev.yaml up -d
 #   或
 #   docker compose -f docker-compose.dev.yaml up -d postgres redis kafka
+#
+# 端口冲突时覆盖（例如 Windows Hyper-V 保留了 5432）：
+#   POSTGRES_PORT=5280 docker compose -f docker-compose.dev.yaml up -d
 # ============================================================
 
 services:
@@ -18,7 +21,7 @@ services:
       POSTGRES_DB: blockexplore
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
@@ -57,6 +60,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_LOG_DIRS: /var/lib/kafka/data
       KAFKA_MESSAGE_MAX_BYTES: 10485760
       KAFKA_REPLICA_FETCH_MAX_BYTES: 10485760

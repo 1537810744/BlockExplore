@@ -27,13 +27,14 @@ import (
 	"fmt" // fmt 包用于格式化字符串，类似 Python 的 format()
 
 	// ---- 以下是我们自己写的内部包 ----
-	"blockexplore/internal/config"      // 配置管理，读取 .env 文件
-	"blockexplore/internal/handler"     // HTTP 请求处理器（类似 Spring 的 Controller）
-	"blockexplore/internal/repository"  // 数据访问层（类似 Spring 的 DAO/Repository）
-	"blockexplore/internal/router"      // 路由注册，定义 URL 和处理器的映射
+	"blockexplore/internal/config"       // 配置管理，读取 .env 文件
+	"blockexplore/internal/handler"      // HTTP 请求处理器（类似 Spring 的 Controller）
+	"blockexplore/internal/repository"   // 数据访问层（类似 Spring 的 DAO/Repository）
+	"blockexplore/internal/router"       // 路由注册，定义 URL 和处理器的映射
+	"blockexplore/internal/service/price" // 价格业务逻辑层
 	"blockexplore/internal/service/query" // 查询业务逻辑层
-	"blockexplore/pkg/cache"           // Redis 缓存封装
-	"blockexplore/pkg/logger"          // 日志封装
+	"blockexplore/pkg/cache"            // Redis 缓存封装
+	"blockexplore/pkg/logger"           // 日志封装
 
 	// ---- 以下是第三方库 ----
 	"go.uber.org/zap"           // Uber 开发的高性能日志库
@@ -96,16 +97,20 @@ func main() {
 	// 创建 Repository 层（数据访问层，负责与数据库交互）
 	blockRepo := repository.NewBlockRepo(db) // 区块数据访问
 	txRepo := repository.NewTxRepo(db)       // 交易数据访问
+	priceRepo := repository.NewPriceRepo(db) // 价格数据访问
 
 	// 创建 Service 层（业务逻辑层，处理业务逻辑）
 	// QueryService 依赖 blockRepo 和 txRepo，以及 Redis 缓存
 	queryService := query.NewQueryService(blockRepo, txRepo, redisClient)
+	// PriceService 依赖 priceRepo、Redis 缓存和 CoinGecko API 地址
+	// query-api 作为网关也提供价格查询，避免 nil 导致 panic
+	priceService := price.NewPriceService(priceRepo, redisClient, cfg.Price.APIURL)
 
 	// 创建 Handler 层（请求处理层，接收 HTTP 请求并返回响应）
 	blockHandler := handler.NewBlockHandler(queryService)   // 区块相关接口
 	txHandler := handler.NewTxHandler(queryService)         // 交易相关接口
 	searchHandler := handler.NewSearchHandler(repository.NewSearchRepo(db)) // 搜索接口
-	priceHandler := handler.NewPriceHandler(nil)            // 价格接口（price-api 单独服务，这里传 nil）
+	priceHandler := handler.NewPriceHandler(priceService)   // 价格接口（query-api 作为网关统一提供服务）
 
 	// ============================================================
 	// 第 6 步：初始化路由

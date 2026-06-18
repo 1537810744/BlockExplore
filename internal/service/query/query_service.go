@@ -31,27 +31,52 @@ import (
 	"time"       // 时间处理
 
 	"blockexplore/internal/model"       // 数据模型
-	"blockexplore/internal/repository"  // 数据访问层
-	"blockexplore/pkg/cache"           // Redis 缓存
 	"blockexplore/pkg/logger"          // 日志
 
 	"go.uber.org/zap" // 日志库
 )
 
 // ============================================================
+// 依赖接口定义（用于解耦和单元测试 mock）
+// ============================================================
+// 通过接口而非具体结构体声明依赖，遵循 Go 的"隐式接口"设计。
+// *repository.BlockRepo / *repository.TxRepo / *cache.RedisClient
+// 都天然满足这些接口，无需修改它们。
+
+// BlockRepository 区块数据访问接口
+type BlockRepository interface {
+	GetList(chain string, page, pageSize int) ([]model.Block, int64, error)
+	GetByChainAndNumber(chain string, blockNumber int64) (*model.Block, error)
+}
+
+// TxRepository 交易数据访问接口
+type TxRepository interface {
+	GetByBlockNumber(chain string, blockNumber int64, page, pageSize int) ([]model.Transaction, int64, error)
+	GetByHash(chain, txHash string) (*model.Transaction, error)
+	GetByAddress(chain, address string, page, pageSize int) ([]model.Transaction, int64, error)
+}
+
+// Cacher 缓存接口
+type Cacher interface {
+	Get(ctx context.Context, key string, dest interface{}) error
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error
+}
+
+// ============================================================
 // QueryService 查询服务
 // ============================================================
 // 提供区块和交易的查询功能，优先读取 Redis 缓存
 type QueryService struct {
-	blockRepo *repository.BlockRepo // 区块数据访问层
-	txRepo    *repository.TxRepo    // 交易数据访问层
-	cache     *cache.RedisClient    // Redis 缓存客户端
+	blockRepo BlockRepository // 区块数据访问层
+	txRepo    TxRepository    // 交易数据访问层
+	cache     Cacher          // Redis 缓存客户端
 }
 
 // ============================================================
 // NewQueryService 创建查询服务实例
 // ============================================================
-func NewQueryService(blockRepo *repository.BlockRepo, txRepo *repository.TxRepo, redisClient *cache.RedisClient) *QueryService {
+// 参数接受接口类型，可传入真实的 *repository.BlockRepo 等，也可传入测试 mock
+func NewQueryService(blockRepo BlockRepository, txRepo TxRepository, redisClient Cacher) *QueryService {
 	return &QueryService{
 		blockRepo: blockRepo,
 		txRepo:    txRepo,

@@ -28,25 +28,38 @@ import (
 
 	"blockexplore/internal/model" // 数据模型
 	"blockexplore/internal/mq"    // Kafka 消息队列
-	"blockexplore/internal/repository" // 数据访问层
 	"blockexplore/pkg/logger"     // 日志
 
 	"go.uber.org/zap" // 日志库
 )
 
 // ============================================================
+// 依赖接口定义（用于解耦和单元测试 mock）
+// ============================================================
+
+// BlockWriter 区块写入接口
+type BlockWriter interface {
+	CreateSingle(block *model.Block) error
+}
+
+// TxWriter 交易写入接口
+type TxWriter interface {
+	Create(txs []model.Transaction) error
+}
+
+// ============================================================
 // BlockProcessor 区块处理器
 // ============================================================
 // 从 Kafka 消费消息，解析区块和交易数据，写入数据库
 type BlockProcessor struct {
-	blockRepo *repository.BlockRepo // 区块数据访问层
-	txRepo    *repository.TxRepo    // 交易数据访问层
+	blockRepo BlockWriter // 区块数据访问层
+	txRepo    TxWriter    // 交易数据访问层
 }
 
 // ============================================================
 // NewBlockProcessor 创建区块处理器实例
 // ============================================================
-func NewBlockProcessor(blockRepo *repository.BlockRepo, txRepo *repository.TxRepo) *BlockProcessor {
+func NewBlockProcessor(blockRepo BlockWriter, txRepo TxWriter) *BlockProcessor {
 	return &BlockProcessor{
 		blockRepo: blockRepo,
 		txRepo:    txRepo,

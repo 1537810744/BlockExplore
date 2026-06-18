@@ -1,0 +1,35 @@
+# golangci-lint 配置
+# 文档: https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck       # 检查未处理的错误
+    - gosimple       # 简化代码建议
+    - govet          # Go 官方 vet
+    - ineffassign    # 检查无效赋值
+    - staticcheck    # 静态分析
+    - unused         # 检查未使用的变量/导入
+    - gofmt          # 格式检查
+    - goimports      # import 排序检查
+    - misspell       # 拼写检查
+    - bodyclose      # HTTP response body 是否关闭
+
+linters-settings:
+  govet:
+    enable-all: false
+  gofmt:
+    simplify: true
+  misspell:
+    locale: US
+
+issues:
+  exclude-dirs:
+    - vendor
+    - node_modules
+    - web
+  max-issues-per-linter: 50
+  max-same-issues: 10
